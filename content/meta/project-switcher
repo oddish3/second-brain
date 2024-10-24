@@ -1,0 +1,93 @@
+#!/bin/bash
+
+# Save as ~/.local/bin/project-switcher
+# Make executable: chmod +x ~/.local/bin/project-switcher
+
+# Configuration
+TERMINAL_APP="iTerm"  # Options: "iTerm", "Terminal", "Warp"
+EDITOR="code"         # Options: "code" (VSCode), "nvim", "vim"
+
+# Define projects with additional metadata
+cat > ~/.project-config.json << 'EOL'
+{
+  "projects": {
+    "quartz": {
+      "path": "$HOME/second-brain/quartz",
+      "description": "Digital Garden / Second Brain",
+      "terminal": true,
+      "editor": true
+    },
+    "health-econ": {
+      "path": "$HOME/research/health-economics",
+      "description": "Health Economics Research",
+      "terminal": true,
+      "editor": true
+    },
+    "thesis": {
+      "path": "$HOME/research/phd-thesis",
+      "description": "PhD Thesis",
+      "terminal": true,
+      "editor": true
+    }
+  }
+}
+EOL
+
+# Function to launch terminal
+launch_terminal() {
+    local dir="$1"
+    case "$TERMINAL_APP" in
+        "iTerm")
+            osascript -e "tell application \"iTerm\"
+                create window with default profile
+                tell current session of current window
+                    write text \"cd '$dir'\"
+                end tell
+                activate
+            end tell"
+            ;;
+        "Terminal")
+            osascript -e "tell application \"Terminal\"
+                do script \"cd '$dir'\"
+                activate
+            end tell"
+            ;;
+        "Warp")
+            open -a Warp "$dir"
+            ;;
+    esac
+}
+
+# Use fzf for selection (more feature-rich than choose)
+selected=$(cat ~/.project-config.json | \
+    jq -r '.projects | to_entries | .[] | "\(.key) (\(.value.description))"' | \
+    fzf --height=40% \
+        --border=rounded \
+        --prompt="Select project > " \
+        --preview 'echo "Path: $(echo {} | cut -d" " -f1 | xargs -I % jq -r ".projects.%.path" ~/.project-config.json)
+Description: $(echo {} | cut -d" " -f1 | xargs -I % jq -r ".projects.%.description" ~/.project-config.json)"' \
+        --bind 'enter:accept' \
+        --bind 'up:up' \
+        --bind 'down:down' \
+        --bind 'ctrl-c:abort' \
+        --no-mouse)
+
+if [ -n "$selected" ]; then
+    # Extract project key from selection
+    project_key=$(echo "$selected" | cut -d' ' -f1)
+    
+    # Get project path
+    project_path=$(jq -r ".projects.\"$project_key\".path" ~/.project-config.json | envsubst)
+    
+    if [ -d "$project_path" ]; then
+        # Open in configured terminal
+        launch_terminal "$project_path"
+        
+        # Open in editor if configured
+        if [ "$(jq -r ".projects.\"$project_key\".editor" ~/.project-config.json)" = "true" ]; then
+            $EDITOR "$project_path"
+        fi
+    else
+        echo "Directory does not exist: $project_path"
+    fi
+fi
